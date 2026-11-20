@@ -1,5 +1,6 @@
 import {$, api, clock, date, notice, post, showError, time} from './view.js';
 import * as stages from './stages.js';
+import * as closing from './closing.js';
 import {fillDraft, newLeg, readDraft} from './dispatch.js';
 
 const anchors = [...document.querySelectorAll('.rail-nav [data-nav]')];
@@ -27,6 +28,7 @@ function updateMeta() {
 function paint() {
   if (!meta || !data) return;
   if (current === 'runs') stages.runs(meta, id => load(id));
+  else if (current === 'closing') closing.mount(meta).catch(error => showError(error, true));
   else if (current === 'dispatch') {
     if (draftRun !== runId()) {
       draftRun = runId();
@@ -64,12 +66,12 @@ async function load(run = selected) {
     if (token !== revision) return;
     const suffix = `?run=${encodeURIComponent(runMeta.manifest.id)}`;
     const [payload, slots] = await Promise.all([
-      stage === 'runs' ? runMeta : api(`/api/${stage}${suffix}`),
+      stage === 'runs' || stage === 'closing' ? runMeta : api(`/api/${stage}${suffix}`),
       stage === 'replay' ? api(`/api/demand${suffix}`) : null,
     ]);
     if (token !== revision) return;
     meta = runMeta;
-    data = stage === 'runs' ? runMeta : payload.data;
+    data = stage === 'runs' || stage === 'closing' ? runMeta : payload.data;
     extra = slots?.data;
     updateMeta();
     paint();
@@ -165,4 +167,5 @@ $('add-leg').addEventListener('click', () => {
   fillDraft([...legs, newLeg(legs, meta.shift)], meta.shift, invalidate);
   invalidate();
 });
+closing.bind(() => meta);
 load(null);

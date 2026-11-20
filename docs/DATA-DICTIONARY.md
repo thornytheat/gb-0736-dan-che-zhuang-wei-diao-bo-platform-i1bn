@@ -15,6 +15,8 @@
 | 同上 | `note` | 可空，保留引号内换行 |
 | `sample_data/capacity.csv` | `station`、`revision`、`start`、`end`、`slots`、`note` | 容量修订的区间、桩数与备注。`0` 表示关站 |
 | `sample_data/plan.json` | `id`、`truck`、`from`、`to`、`depart`、`arrive`、`count` | 行程键、车辆、装卸地点与时点、装卸车辆数。行程时点支持毫秒 |
+| `sample_data/book.csv` | `bike_id`、`home_station`、`status`、`note` | 账面车辆册：车辆号、归属站、状态与备注。逐站数量须与运行快照期末勾稽一致，否则 `BIKE_BOOK_GAP` 拒绝关账 |
+| `sample_data/count_sheet.csv` | `bike_id`、`station`、`counted_at`、`note` | 现场点数单：车辆号、点数所在站、带时区的点数时点与备注。同车同站重复全部隔离；跨站重复进入冲突仲裁 |
 
 CSV 上限为 256 KiB 和 2000 条逻辑记录。`line` 是记录起始的物理行号。`raw` 保存原始 CSV 字段，字段前后空白在归一列中清除。必填字段的空串、`-`、`N/A`、`NULL` 和 `未知` 单列原因码。同一事件号、站点、租还动作和发生时点相等时，保留收件最早的一行，同收件时点保留源行号最小的一行。一个事件号的有效候选出现业务矛盾时，全部隔离。
 
@@ -27,6 +29,24 @@ CSV 上限为 256 KiB 和 2000 条逻辑记录。`line` 是记录起始的物理
 - 调拨行程先校验载重、时间和车辆路径，再按对应该时点的桩位状态模拟装卸。每辆车在装车时扣出站库存，卸车后才进入目标站。站点容不下整趟或装车数量不足时整份试算失败。草稿最多 20 趟。
 - 比较使用同一组已采信事件，差量为方案未成交数减基准未成交数。负数表示净改善，原因改变但仍未成交的尝试也进入逐笔差异。
 
+## 晚班关账与开班基数
+
+- 关账以运行快照的逐站期末勾稽为账面，以现场点数单为实盘。车辆册逐站数量与快照不一致时直接 `BIKE_BOOK_GAP`，防止拿错账关账。
+- 每辆进入对账的车都产生一条带 `evidence` 与源行号的采信记录，处置类型见下表。隔离行进 `count_sheet.excluded` 与 `book_sheet.excluded`，原盘点字节与归档永不删除。
+
+| 处置码 | 触发条件 | 基数效果 |
+|---|---|---|
+| `MATCHED` | 现场站与账面归属站一致 | 不调整 |
+| `STAGED_CLOSED` | 归属站在点数时点处于容量表关站区间（`slots=0`），车在相邻站盘到，附关站区间证据 | 归属站调出、盘到站调入，计入基数 |
+| `CONFIRMED_TRANSFER` | 同一辆车被多站上报且归属站未关，按「归属站在开优先 → 点数时点早 → 站号小」仲裁，胜方采信 | 计入基数 |
+| `CONFLICT_REJECT` | 双站冲突的败方上报 | 隔离，不调账 |
+| `SHORTAGE_SUSPENSE` | 账面在册但现场未盘到，差异无出处 | 挂起，不进基数 |
+| `SURPLUS_SUSPENSE` | 现场盘到账面未登记车辆，无来历凭证 | 挂起，不进基数 |
+
+- 开班基数 = 账面期末 ± 有出处调整（仅 `STAGED_CLOSED`、`CONFIRMED_TRANSFER`）。挂起车单列 `suspense_held`，不凭空调平，避免账面虚增或开班数偏紧。在骑池 `road_end` 与站内基数分开列示。
+- 关账结论编号由点数单与车辆册的 SHA-256、规则版本计算。同一份盘点重试得到同一编号，返回 `created=false` 且不重复调整。
+- 关账绑定生成它的班次 `run_id`。方案发布产生新班次后，旧班次上仍生效的关账置 `superseded` 并清空生效指针，记录与来源全部保留；用新班次重算产生新版本，历史可逐版查看。
+
 ## API 写入与证据
 
 | 入口 | 请求字段 | 结果 |
@@ -36,6 +56,10 @@ CSV 上限为 256 KiB 和 2000 条逻辑记录。`line` 是记录起始的物理
 | `POST /api/dispatch/publish` | JSON `expected`、`legs` | 校验并发布方案 |
 | `POST /api/runs/rerun` | JSON `expected` | 按封存原文件与已发布方案复算 |
 | `POST /api/runs/restore` | JSON `expected`、`target` | 原子回切到归档版本 |
+| `POST /api/closing/sheets` | `multipart/form-data` 的 `expected_run`、`count_sheet`、可选 `book_sheet` | 登记盘点来源（同字节幂等）并返回试算结论 |
+| `POST /api/closing/preview` | JSON `run`、`source_id` | 按已登记来源重算关账结论但不落库 |
+| `POST /api/closing/close` | JSON `expected_run`、`expected_closing`、`source_id` | 乐观并发写入关账；同盘点重试幂等 |
+| `GET /api/closing`、`GET /api/closing/<id>` | 查询参数 `run` | 生效关账、版本留档与单版采信明细 |
 
 `expected` 为写入时所见当前班次完整编号。查询七个阶段时可通过 `?run=<编号>` 固定证据版本。写入响应的 `created` 表示新增归档，`changed` 表示响应编号与所提交的 `expected` 不同。无效请求返回 `code`、`message`、`details`。
 

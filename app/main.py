@@ -9,12 +9,13 @@ from .errors import DomainError
 from .modules.archive.handler import bp as archive
 from .modules.archive.service import seed
 from .modules.capacity.handler import bp as capacity
+from .modules.closing.handler import bp as closing
 from .modules.demand.handler import bp as demand
 from .modules.dispatch.handler import bp as dispatch
 from .modules.intake.handler import bp as intake
 from .modules.inventory.handler import bp as inventory
 from .modules.replay.handler import bp as replay
-from .reasons import REASONS
+from .reasons import DISPOSITIONS, REASONS
 from .store import Store
 
 
@@ -24,7 +25,7 @@ def create_app(path=None):
     db = Store(path or os.getenv('CYCLE_DB', 'var/shift.sqlite3'))
     app.extensions['shift_store'] = db
     seed(db)
-    for blueprint in (intake, capacity, replay, demand, dispatch, inventory, archive):
+    for blueprint in (intake, capacity, replay, demand, dispatch, inventory, archive, closing):
         app.register_blueprint(blueprint)
 
     @app.errorhandler(DomainError)
@@ -46,7 +47,7 @@ def create_app(path=None):
 
     @app.get('/')
     def home():
-        return render_template('workbench.html', reasons=REASONS)
+        return render_template('workbench.html', reasons=REASONS, dispositions=DISPOSITIONS)
 
     @app.get('/health')
     def health():

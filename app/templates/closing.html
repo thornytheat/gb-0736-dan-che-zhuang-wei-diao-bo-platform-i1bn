@@ -1,0 +1,32 @@
+<div class="stage" id="stage-closing" hidden>
+  <section class="panel">
+    <div class="panel__head"><h2>关账结论与开班基数</h2><span class="subtle" id="closing-status">读取中</span></div>
+    <div class="ledger-scroll" id="closing-summary"></div>
+    <div class="ledger-scroll" id="opening-bases"></div>
+  </section>
+  <section class="panel">
+    <div class="panel__head"><h2>每辆差车去向（采信记录）</h2>
+      <label>处置 <select id="closing-filter">
+        <option value="all">全部车辆</option>
+        <option value="diff">仅差车</option>
+        <option value="suspended">仅挂起</option>
+        <option value="adjusted">仅计入基数</option>
+      </select></label>
+    </div>
+    <div class="ledger-scroll" id="closing-dispositions"></div>
+  </section>
+  <section class="panel">
+    <div class="panel__head"><h2>盘点隔离行</h2><span class="subtle">原盘点记录保留不删</span></div>
+    <div class="ledger-scroll" id="closing-excluded"></div>
+  </section>
+  <section class="panel">
+    <div class="panel__head"><h2>上传现场点数单</h2><span class="subtle">CSV · 256 KiB · 账面车辆册可留空用样例</span></div>
+    <form class="panel__body inline-form" id="closing-form">
+      <label for="count-file">点数单</label><input id="count-file" name="count_sheet" type="file" accept=".csv,text/csv" required>
+      <label for="book-file">车辆册（可选）</label><input id="book-file" name="book_sheet" type="file" accept=".csv,text/csv">
+      <button class="btn btn--primary" type="submit">上传并试算</button>
+      <button class="btn" id="closing-commit" type="button" disabled>确认关账</button>
+    </form>
+  </section>
+  <section class="panel"><div class="panel__head"><h2>关账版本留档</h2></div><div class="ledger-scroll" id="closing-history"></div></section>
+</div>
